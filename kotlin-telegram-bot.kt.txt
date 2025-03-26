@@ -1,0 +1,355 @@
+import org.telegram.telegrambots.bots.TelegramLongPollingBot
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto
+import org.telegram.telegrambots.meta.api.objects.InputFile
+import org.telegram.telegrambots.meta.api.objects.Update
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException
+import org.telegram.telegrambots.meta.TelegramBotsApi
+import org.telegram.telegrambots.updatesreceivers.DefaultBotSession
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
+import java.io.File
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.*
+
+// مكان حفظ البيانات
+val DATA_FOLDER = "data"
+val USERS_FILE = "$DATA_FOLDER/users.json"
+val PORTFOLIOS_FILE = "$DATA_FOLDER/portfolios.json"
+val TRANSACTIONS_FILE = "$DATA_FOLDER/transactions.json"
+
+// المفتاح الخاص بالبوت
+val BOT_TOKEN = "8018424913:AAE76-eaup7xD_vErDZDQheMaPUWbuKtCX4"
+val ALPHA_VANTAGE_API_KEY = "YOIIBHNR4ZBQVB5W"
+
+// حالات المحادثة
+enum class ConversationState {
+    IDLE, 
+    AWAITING_PORTFOLIO_NAME,
+    AWAITING_ASSET_SYMBOL,
+    AWAITING_ASSET_QUANTITY,
+    AWAITING_ASSET_PRICE
+}
+
+// تمثيل بيانات المستخدم
+data class UserData(
+    var state: ConversationState = ConversationState.IDLE,
+    var currentPortfolio: String = "",
+    var currentSymbol: String = "",
+    var currentQuantity: Double = 0.0,
+    var portfolios: MutableMap<String, Portfolio> = mutableMapOf()
+)
+
+// تمثيل المحفظة
+data class Portfolio(
+    var name: String,
+    var assets: MutableMap<String, Asset> = mutableMapOf(),
+    var cashBalance: Double = 0.0,
+    var createdAt: String = LocalDateTime.now().toString()
+)
+
+// تمثيل الأصل المالي
+data class Asset(
+    var symbol: String,
+    var quantity: Double,
+    var purchasePrice: Double,
+    var currentPrice: Double = 0.0,
+    var lastUpdated: String = LocalDateTime.now().toString()
+)
+
+// البوت الرئيسي
+class InvestmentPortfolioBot : TelegramLongPollingBot() {
+    
+    private val users = mutableMapOf<Long, UserData>()
+    private val objectMapper = ObjectMapper()
+    
+    init {
+        // التأكد من وجود مجلد البيانات
+        File(DATA_FOLDER).mkdirs()
+        
+        // تحميل البيانات المحفوظة
+        loadData()
+    }
+    
+    override fun getBotUsername(): String = "AISmartAssistant777_bot"
+    
+    override fun getBotToken(): String = BOT_TOKEN
+    
+    override fun onUpdateReceived(update: Update) {
+        if (!update.hasMessage()) return
+        
+        val chatId = update.message.chatId
+        val userId = chatId
+        val messageText = update.message.text ?: return
+        
+        // إضافة المستخدم إذا لم يكن موجودا
+        if (!users.containsKey(userId)) {
+            users[userId] = UserData()
+        }
+        
+        val userData = users[userId]!!
+        
+        when {
+            // أوامر البوت الرئيسية
+            messageText.startsWith("/start") -> handleStart(chatId, update.message.from.firstName)
+            messageText.startsWith("/help") -> handleHelp(chatId)
+            messageText.startsWith("/create_portfolio") -> handleCreatePortfolio(chatId, userData)
+            messageText.startsWith("/list_portfolios") -> handleListPortfolios(chatId, userData)
+            messageText.startsWith("/add_asset") -> handleAddAsset(chatId, userData)
+            messageText.startsWith("/portfolio_summary") -> handlePortfolioSummary(chatId, userData)
+            
+            // معالجة حالات المحادثة
+            userData.state == ConversationState.AWAITING_PORTFOLIO_NAME -> processPortfolioName(chatId, messageText, userData)
+            userData.state == ConversationState.AWAITING_ASSET_SYMBOL -> processAssetSymbol(chatId, messageText, userData)
+            userData.state == ConversationState.AWAITING_ASSET_QUANTITY -> processAssetQuantity(chatId, messageText, userData)
+            userData.state == ConversationState.AWAITING_ASSET_PRICE -> processAssetPrice(chatId, messageText, userData)
+            
+            // استجابة عامة
+            else -> {
+                sendTextMessage(chatId, """
+                    لم أفهم طلبك. يمكنك استخدام الأوامر التالية:
+                    /start - ابدأ استخدام البوت
+                    /help - قائمة المساعدة
+                    /create_portfolio - إنشاء محفظة جديدة
+                    /list_portfolios - عرض المحافظ الحالية
+                    /add_asset - إضافة أصل إلى محفظة
+                    /portfolio_summary - عرض ملخص المحفظة
+                """.trimIndent())
+            }
+        }
+        
+        // حفظ البيانات بعد كل عملية
+        saveData()
+    }
+    
+    private fun handleStart(chatId: Long, firstName: String) {
+        val message = """
+            مرحباً $firstName!
+            
+            أنا بوت المحفظة الاستثمارية، سأساعدك في إدارة استثماراتك بكل سهولة.
+            
+            يمكنك استخدام الأوامر التالية:
+            /create_portfolio - إنشاء محفظة جديدة
+            /list_portfolios - عرض المحافظ الحالية
+            /add_asset - إضافة أصل إلى محفظة
+            /portfolio_summary - عرض ملخص المحفظة
+            
+            للمساعدة اكتب /help
+        """.trimIndent()
+        
+        sendTextMessage(chatId, message)
+    }
+    
+    private fun handleHelp(chatId: Long) {
+        val message = """
+            📋 قائمة الأوامر:
+            
+            /start - ابدأ استخدام البوت
+            /help - قائمة المساعدة
+            
+            📊 المحافظ:
+            /create_portfolio - إنشاء محفظة جديدة
+            /list_portfolios - عرض المحافظ الحالية
+            
+            💼 الأصول:
+            /add_asset - إضافة أصل إلى محفظة
+            
+            📈 التحليل:
+            /portfolio_summary - عرض ملخص المحفظة
+        """.trimIndent()
+        
+        sendTextMessage(chatId, message)
+    }
+    
+    private fun handleCreatePortfolio(chatId: Long, userData: UserData) {
+        userData.state = ConversationState.AWAITING_PORTFOLIO_NAME
+        sendTextMessage(chatId, "الرجاء إدخال اسم المحفظة الجديدة:")
+    }
+    
+    private fun processPortfolioName(chatId: Long, name: String, userData: UserData) {
+        // التأكد من عدم وجود محفظة بنفس الاسم
+        if (userData.portfolios.containsKey(name)) {
+            sendTextMessage(chatId, "يوجد محفظة بهذا الاسم بالفعل. الرجاء اختيار اسم آخر:")
+            return
+        }
+        
+        // إنشاء محفظة جديدة
+        userData.portfolios[name] = Portfolio(name = name)
+        userData.state = ConversationState.IDLE
+        
+        sendTextMessage(chatId, "تم إنشاء المحفظة '$name' بنجاح!")
+    }
+    
+    private fun handleListPortfolios(chatId: Long, userData: UserData) {
+        if (userData.portfolios.isEmpty()) {
+            sendTextMessage(chatId, "لا توجد محافظ حالياً. استخدم /create_portfolio لإنشاء محفظة جديدة.")
+            return
+        }
+        
+        val message = StringBuilder("📋 المحافظ الحالية:\n\n")
+        
+        userData.portfolios.forEach { (name, portfolio) ->
+            val assetCount = portfolio.assets.size
+            val totalValue = portfolio.assets.values.sumOf { it.quantity * it.purchasePrice }
+            
+            message.append("📊 $name\n")
+            message.append("    عدد الأصول: $assetCount\n")
+            message.append("    القيمة الإجمالية: $totalValue\n\n")
+        }
+        
+        sendTextMessage(chatId, message.toString())
+    }
+    
+    private fun handleAddAsset(chatId: Long, userData: UserData) {
+        if (userData.portfolios.isEmpty()) {
+            sendTextMessage(chatId, "لا توجد محافظ حالياً. استخدم /create_portfolio لإنشاء محفظة جديدة أولاً.")
+            return
+        }
+        
+        // إنشاء قائمة بأسماء المحافظ
+        val message = StringBuilder("اختر المحفظة التي تريد إضافة أصل إليها:\n\n")
+        
+        userData.portfolios.keys.forEachIndexed { index, name ->
+            message.append("${index + 1}. $name\n")
+        }
+        
+        message.append("\nاكتب اسم المحفظة:")
+        
+        userData.state = ConversationState.AWAITING_PORTFOLIO_NAME
+        sendTextMessage(chatId, message.toString())
+    }
+    
+    private fun processAssetSymbol(chatId: Long, symbol: String, userData: UserData) {
+        userData.currentSymbol = symbol.trim().uppercase()
+        userData.state = ConversationState.AWAITING_ASSET_QUANTITY
+        
+        sendTextMessage(chatId, "أدخل كمية الأصل:")
+    }
+    
+    private fun processAssetQuantity(chatId: Long, quantityText: String, userData: UserData) {
+        try {
+            val quantity = quantityText.toDouble()
+            if (quantity <= 0) {
+                sendTextMessage(chatId, "الكمية يجب أن تكون أكبر من صفر. أدخل الكمية مرة أخرى:")
+                return
+            }
+            
+            userData.currentQuantity = quantity
+            userData.state = ConversationState.AWAITING_ASSET_PRICE
+            
+            sendTextMessage(chatId, "أدخل سعر الشراء للوحدة:")
+            
+        } catch (e: NumberFormatException) {
+            sendTextMessage(chatId, "الرجاء إدخال رقم صحيح. أدخل الكمية مرة أخرى:")
+        }
+    }
+    
+    private fun processAssetPrice(chatId: Long, priceText: String, userData: UserData) {
+        try {
+            val price = priceText.toDouble()
+            if (price <= 0) {
+                sendTextMessage(chatId, "السعر يجب أن يكون أكبر من صفر. أدخل السعر مرة أخرى:")
+                return
+            }
+            
+            // الحصول على المحفظة الحالية
+            val portfolio = userData.portfolios[userData.currentPortfolio]
+            if (portfolio != null) {
+                // إضافة الأصل إلى المحفظة
+                portfolio.assets[userData.currentSymbol] = Asset(
+                    symbol = userData.currentSymbol,
+                    quantity = userData.currentQuantity,
+                    purchasePrice = price,
+                    currentPrice = price
+                )
+                
+                sendTextMessage(chatId, """
+                    تمت إضافة الأصل بنجاح!
+                    
+                    الرمز: ${userData.currentSymbol}
+                    الكمية: ${userData.currentQuantity}
+                    سعر الشراء: $price
+                    إجمالي القيمة: ${userData.currentQuantity * price}
+                """.trimIndent())
+            } else {
+                sendTextMessage(chatId, "حدث خطأ: المحفظة غير موجودة.")
+            }
+            
+            // إعادة تعيين الحالة
+            userData.state = ConversationState.IDLE
+            userData.currentPortfolio = ""
+            userData.currentSymbol = ""
+            userData.currentQuantity = 0.0
+            
+        } catch (e: NumberFormatException) {
+            sendTextMessage(chatId, "الرجاء إدخال رقم صحيح. أدخل السعر مرة أخرى:")
+        }
+    }
+    
+    private fun handlePortfolioSummary(chatId: Long, userData: UserData) {
+        if (userData.portfolios.isEmpty()) {
+            sendTextMessage(chatId, "لا توجد محافظ حالياً. استخدم /create_portfolio لإنشاء محفظة جديدة.")
+            return
+        }
+        
+        // طلب اسم المحفظة لعرض ملخصها
+        val message = StringBuilder("اختر المحفظة لعرض ملخصها:\n\n")
+        
+        userData.portfolios.keys.forEachIndexed { index, name ->
+            message.append("${index + 1}. $name\n")
+        }
+        
+        sendTextMessage(chatId, message.toString())
+        
+        // تغيير حالة المستخدم لانتظار اختيار المحفظة
+        userData.state = ConversationState.AWAITING_PORTFOLIO_NAME
+    }
+    
+    private fun sendTextMessage(chatId: Long, text: String) {
+        val message = SendMessage()
+        message.chatId = chatId.toString()
+        message.text = text
+        
+        try {
+            execute(message)
+        } catch (e: TelegramApiException) {
+            e.printStackTrace()
+        }
+    }
+    
+    private fun loadData() {
+        // تحميل بيانات المستخدمين
+        val usersFile = File(USERS_FILE)
+        if (usersFile.exists()) {
+            try {
+                val userData = objectMapper.readValue<Map<String, UserData>>(usersFile)
+                userData.forEach { (userIdStr, data) ->
+                    users[userIdStr.toLong()] = data
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    private fun saveData() {
+        // حفظ بيانات المستخدمين
+        val usersFile = File(USERS_FILE)
+        try {
+            objectMapper.writeValue(usersFile, users)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
+fun main() {
+    // تشغيل البوت
+    val botsApi = TelegramBotsApi(DefaultBotSession::class.java)
+    botsApi.registerBot(InvestmentPortfolioBot())
+    
+    println("تم تشغيل البوت بنجاح!")
+}

@@ -1,0 +1,4 @@
+Session invite - TeamViewer Assist AR
+
+Please connect to my device by opening https://start.teamviewer.com/275668886
+Alternatively, download TeamViewer from www.teamviewer.com, open the application, enter 275 668 886 into the Partner ID field, and press CONNECT.
