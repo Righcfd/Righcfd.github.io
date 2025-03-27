@@ -1,4 +1,28 @@
-* {
+* {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400">
+  <!-- خلفية -->
+  <rect width="600" height="400" fill="#f8f9fa" rx="10" ry="10"/>
+  
+  <!-- عنوان -->
+  <text x="300" y="30" font-family="Arial, sans-serif" font-size="20" fill="#2c3e50" text-anchor="middle" font-weight="bold">هيكلية مشروع منصة الذكاء الاصطناعي</text>
+  
+  <!-- طبقات المشروع -->
+  <!-- طبقة الواجهة -->
+  <rect x="50" y="60" width="500" height="80" fill="#3498db" rx="5" ry="5" opacity="0.8"/>
+  <text x="300" y="90" font-family="Arial, sans-serif" font-size="16" fill="white" text-anchor="middle">طبقة واجهة المستخدم</text>
+  <text x="300" y="115" font-family="Arial, sans-serif" font-size="12" fill="white" text-anchor="middle">index.html | style.css | main.js | auth.js</text>
+  
+  <!-- طبقة المصادقة -->
+  <rect x="100" y="150" width="400" height="60" fill="#9b59b6" rx="5" ry="5" opacity="0.8"/>
+  <text x="300" y="180" font-family="Arial, sans-serif" font-size="14" fill="white" text-anchor="middle">نظام المصادقة والأمان (auth.js)</text>
+  
+  <!-- طبقة الاتصال بالذكاء الاصطناعي -->
+  <rect x="100" y="220" width="400" height="60" fill="#2ecc71" rx="5" ry="5" opacity="0.8"/>
+  <text x="300" y="250" font-family="Arial, sans-serif" font-size="14" fill="white" text-anchor="middle">نظام الاتصال بخدمات الذكاء الاصطناعي (main.js)</text>
+  
+  <!-- طبقة التكامل الخلفية -->
+  <rect x="50" y="290" width="500" height="80" fill="#e74c3c" rx="5" ry="5" opacity="0.8"/>
+  <text x="300" y="320" font-family="Arial, sans-serif" font-size="16" fill="white" text-anchor="middle">طبقة الخدمات الخلفية</text>
+  <text x="300" y="345" font-fa
     margin: 0;
     padding: 0;
     box-sizing: border-box;
